@@ -11,6 +11,7 @@
 - ask_field — о чём спросили: 'name' или 'phone'.
 """
 import html
+import logging
 from datetime import date, datetime, timedelta
 
 from aiogram import Bot, F, Router
@@ -20,6 +21,7 @@ from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove, User
 
 import db
 import formatting as fmt
+import notifications
 import texts
 from config import DB_DATETIME_FORMAT
 from handlers.common import edit_or_send, try_delete
@@ -29,6 +31,7 @@ from logic import availability, validation
 from states import BookingForm
 
 router = Router()
+log = logging.getLogger(__name__)
 
 
 def slot_start(day: str, minutes: int) -> datetime:
@@ -329,7 +332,7 @@ async def confirm(callback: CallbackQuery, callback_data: BookCb, state: FSMCont
         return
     start = slot_start(callback_data.day, callback_data.n)
     try:
-        await db.create_booking(
+        booking_id = await db.create_booking(
             user.id, service["id"],
             start.strftime(DB_DATETIME_FORMAT),
             availability.horizon().strftime(DB_DATETIME_FORMAT),
@@ -358,3 +361,6 @@ async def confirm(callback: CallbackQuery, callback_data: BookCb, state: FSMCont
     )
     await edit_or_send(bot, chat_id, message_id, text, kb.after_booking())
     await callback.answer()
+    log.info("Новая запись #%s: клиент %s, %s", booking_id, user.id, start)
+    # Сначала клиент видит «Вы записаны», потом уходит уведомление специалисту
+    await notifications.notify_new_booking(bot, booking_id)

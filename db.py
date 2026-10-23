@@ -436,6 +436,22 @@ async def create_booking(client_tg_id: int, service_id: int, start_at: str, hori
         return cursor.lastrowid
 
 
+async def get_booking_details(booking_id: int) -> aiosqlite.Row | None:
+    """Запись со всем, что нужно для уведомления: клиент, услуга, время."""
+    async with connect() as conn:
+        cursor = await conn.execute(
+            "SELECT b.*, s.title AS service_title, s.duration_min,"
+            "       c.tg_id AS client_tg_id, c.name AS client_name,"
+            "       c.username AS client_username, c.phone AS client_phone"
+            " FROM bookings b"
+            " JOIN clients c ON c.id = b.client_id"
+            " JOIN services s ON s.id = b.service_id"
+            " WHERE b.id = ?",
+            (booking_id,),
+        )
+        return await cursor.fetchone()
+
+
 async def has_active_booking(client_tg_id: int) -> bool:
     """Есть ли у клиента активная запись в будущем (для кнопки «Моя запись»)."""
     async with connect() as conn:

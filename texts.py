@@ -90,6 +90,17 @@ BTN_M_CLIENT_VIEW = "👀 Как видит клиент"
 
 CLIENT_VIEW_HINT = "<i>Так меню видит клиент. Вернуться в своё меню: /start</i>"
 
+# --- Специалист: уведомления ---
+
+NOTIFY_NEW_BOOKING = (
+    "🆕 <b>Новая запись</b>\n\n"
+    "👤 {client}\n"
+    "📱 {phone}\n"
+    "✨ «{service}», {duration} · {price}\n"
+    "📅 <b>{day}, {start}–{end}</b>"
+)
+BTN_WRITE_CLIENT = "💬 Написать клиенту"
+
 # --- Специалист: услуги ---
 
 SERVICES_LIST = (
