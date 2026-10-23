@@ -161,6 +161,80 @@ async def get_master() -> aiosqlite.Row:
         return await cursor.fetchone()
 
 
+# --- Услуги ---
+
+# Поля услуги, которые специалист может менять из бота
+SERVICE_FIELDS = {"title", "duration_min", "price", "description"}
+
+
+async def list_services(only_active: bool = False) -> list[aiosqlite.Row]:
+    """Услуги в том порядке, в котором их видит клиент."""
+    sql = "SELECT * FROM services"
+    if only_active:
+        sql += " WHERE is_active = 1"
+    sql += " ORDER BY sort_order, id"
+    async with connect() as conn:
+        cursor = await conn.execute(sql)
+        return list(await cursor.fetchall())
+
+
+async def get_service(service_id: int) -> aiosqlite.Row | None:
+    async with connect() as conn:
+        cursor = await conn.execute("SELECT * FROM services WHERE id = ?", (service_id,))
+        return await cursor.fetchone()
+
+
+async def add_service(title: str, duration_min: int, price: int, description: str | None) -> int:
+    """Добавляет услугу в конец списка и возвращает её id."""
+    async with connect() as conn:
+        cursor = await conn.execute(
+            "INSERT INTO services (master_id, title, duration_min, price, description, sort_order)"
+            " VALUES ((SELECT id FROM masters LIMIT 1), ?, ?, ?, ?,"
+            "         (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM services))",
+            (title, duration_min, price, description),
+        )
+        await conn.commit()
+        return cursor.lastrowid
+
+
+async def update_service(service_id: int, field: str, value: str | int | None) -> None:
+    # Имя колонки нельзя передать через '?', поэтому подставляем его в строку.
+    # Это безопасно только потому, что поле сверяется со списком разрешённых.
+    if field not in SERVICE_FIELDS:
+        raise ValueError(f"Нельзя менять поле {field!r}")
+    async with connect() as conn:
+        await conn.execute(f"UPDATE services SET {field} = ? WHERE id = ?", (value, service_id))
+        await conn.commit()
+
+
+async def toggle_service(service_id: int) -> None:
+    """Скрывает услугу от клиентов или возвращает её."""
+    async with connect() as conn:
+        await conn.execute("UPDATE services SET is_active = 1 - is_active WHERE id = ?", (service_id,))
+        await conn.commit()
+
+
+async def move_service(service_id: int, step: int) -> None:
+    """Сдвигает услугу в списке: step = -1 выше, +1 ниже."""
+    async with connect() as conn:
+        cursor = await conn.execute("SELECT id FROM services ORDER BY sort_order, id")
+        ids = [row["id"] for row in await cursor.fetchall()]
+        i = ids.index(service_id)
+        j = i + step
+        if not 0 <= j < len(ids):
+            return  # и так первая (или последняя)
+        ids[i], ids[j] = ids[j], ids[i]
+        # Перенумеровываем все услуги по порядку: 0, 1, 2...
+        await conn.executemany(
+            "UPDATE services SET sort_order = ? WHERE id = ?",
+            [(order, sid) for order, sid in enumerate(ids)],
+        )
+        await conn.commit()
+
+
+# --- Записи ---
+
+
 async def has_active_booking(client_tg_id: int) -> bool:
     """Есть ли у клиента активная запись в будущем (для кнопки «Моя запись»)."""
     async with connect() as conn:
