@@ -215,6 +215,21 @@ def reschedule_confirm(booking_id: int, day: str, minutes: int) -> InlineKeyboar
     return kb.as_markup()
 
 
+def reminder_24h(booking_id: int) -> InlineKeyboardMarkup:
+    """Под суточным напоминанием — сразу перенос и отмена, без захода в меню."""
+    kb = InlineKeyboardBuilder()
+    kb.button(text=texts.BTN_RESCHEDULE, callback_data=MyCb(action="rs_days", id=booking_id))
+    kb.button(text=texts.BTN_CANCEL_BOOKING, callback_data=MyCb(action="cancel", id=booking_id))
+    kb.adjust(2)
+    return kb.as_markup()
+
+
+def reminder_1h() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text=texts.BTN_WRITE_MASTER, url=f"https://t.me/{settings.master_username}")
+    return kb.as_markup()
+
+
 def share_contact() -> ReplyKeyboardMarkup:
     """Кнопка внизу экрана. Запросить контакт умеет только такая кнопка, а не кнопка под сообщением."""
     return ReplyKeyboardMarkup(

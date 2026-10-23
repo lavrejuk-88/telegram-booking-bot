@@ -530,6 +530,38 @@ async def reschedule_booking(booking_id: int, client_tg_id: int, new_start: str,
         return cursor.lastrowid
 
 
+# --- Напоминания ---
+
+REMINDER_FLAGS = {"reminded_24h", "reminded_1h"}
+
+
+async def due_reminders(flag: str, after: str, until: str) -> list[aiosqlite.Row]:
+    """Активные записи с началом в (after, until], по которым напоминание flag ещё не отправлено."""
+    if flag not in REMINDER_FLAGS:
+        raise ValueError(flag)
+    async with connect() as conn:
+        cursor = await conn.execute(
+            BOOKING_DETAILS + f" WHERE b.status = 'active' AND b.{flag} = 0 AND b.start_at > ? AND b.start_at <= ?"
+            " ORDER BY b.start_at",
+            (after, until),
+        )
+        return list(await cursor.fetchall())
+
+
+async def mark_reminded(booking_id: int, flag: str) -> bool:
+    """Ставит отметку «напоминание отправлено». False — отметка уже стояла.
+
+    Отметку ставим ДО отправки сообщения: лучше в редком случае не напомнить,
+    чем после перезапуска бота прислать одно и то же напоминание дважды.
+    """
+    if flag not in REMINDER_FLAGS:
+        raise ValueError(flag)
+    async with connect() as conn:
+        cursor = await conn.execute(f"UPDATE bookings SET {flag} = 1 WHERE id = ? AND {flag} = 0", (booking_id,))
+        await conn.commit()
+        return cursor.rowcount > 0
+
+
 async def has_active_booking(client_tg_id: int) -> bool:
     """Есть ли у клиента активная запись в будущем (для кнопки «Моя запись»)."""
     async with connect() as conn:
