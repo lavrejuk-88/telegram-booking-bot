@@ -4,6 +4,7 @@
 Остальной код не пишет SQL сам, а вызывает функции из этого файла.
 """
 from contextlib import asynccontextmanager
+from datetime import date, timedelta
 from typing import AsyncIterator
 
 import aiosqlite
@@ -229,6 +230,70 @@ async def move_service(service_id: int, step: int) -> None:
             "UPDATE services SET sort_order = ? WHERE id = ?",
             [(order, sid) for order, sid in enumerate(ids)],
         )
+        await conn.commit()
+
+
+# --- Расписание ---
+# Интервал — пара строк ('10:00', '14:00'), см. logic/schedule.py
+
+
+async def get_template() -> dict[int, list[tuple[str, str]]]:
+    """Шаблон недели: {0: [('10:00', '14:00'), ...], ..., 6: []}"""
+    async with connect() as conn:
+        cursor = await conn.execute(
+            "SELECT weekday, start_time, end_time FROM week_template ORDER BY weekday, start_time"
+        )
+        rows = await cursor.fetchall()
+    template = {weekday: [] for weekday in range(7)}
+    for row in rows:
+        template[row["weekday"]].append((row["start_time"], row["end_time"]))
+    return template
+
+
+async def set_template_day(weekday: int, intervals: list[tuple[str, str]]) -> None:
+    async with connect() as conn:
+        await conn.execute("DELETE FROM week_template WHERE weekday = ?", (weekday,))
+        await conn.executemany(
+            "INSERT INTO week_template (master_id, weekday, start_time, end_time)"
+            " VALUES ((SELECT id FROM masters LIMIT 1), ?, ?, ?)",
+            [(weekday, start, end) for start, end in intervals],
+        )
+        await conn.commit()
+
+
+async def get_intervals(first: date, last: date) -> dict[date, list[tuple[str, str]]]:
+    """Рабочие интервалы с first по last включительно: {date: [('10:00', '14:00'), ...]}"""
+    async with connect() as conn:
+        cursor = await conn.execute(
+            "SELECT start_at, end_at FROM work_intervals"
+            " WHERE start_at >= ? AND start_at < ? ORDER BY start_at",
+            (first.isoformat(), (last + timedelta(days=1)).isoformat()),
+        )
+        rows = await cursor.fetchall()
+    result = {first + timedelta(days=i): [] for i in range((last - first).days + 1)}
+    for row in rows:
+        # '2026-11-05 10:00' → дата '2026-11-05' и время '10:00'
+        day = date.fromisoformat(row["start_at"][:10])
+        result[day].append((row["start_at"][11:], row["end_at"][11:]))
+    return result
+
+
+async def set_days(days: dict[date, list[tuple[str, str]]]) -> None:
+    """Заменяет расписание указанных дней. Всё в одной транзакции: либо все дни, либо ни одного.
+
+    TODO (этап 5): перед заменой проверять, не остаются ли записи клиентов вне рабочего времени.
+    """
+    async with connect() as conn:
+        for day, intervals in days.items():
+            await conn.execute(
+                "DELETE FROM work_intervals WHERE start_at >= ? AND start_at < ?",
+                (day.isoformat(), (day + timedelta(days=1)).isoformat()),
+            )
+            await conn.executemany(
+                "INSERT INTO work_intervals (master_id, start_at, end_at)"
+                " VALUES ((SELECT id FROM masters LIMIT 1), ?, ?)",
+                [(f"{day.isoformat()} {start}", f"{day.isoformat()} {end}") for start, end in intervals],
+            )
         await conn.commit()
 
 

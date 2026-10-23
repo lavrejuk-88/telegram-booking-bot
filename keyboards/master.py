@@ -1,9 +1,12 @@
+from datetime import date
+
 from aiogram.filters.callback_data import CallbackData
 from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import formatting as fmt
 import texts
+from logic.schedule import GRID_HOURS
 
 
 def main_menu() -> InlineKeyboardMarkup:
@@ -83,4 +86,84 @@ def service_form(field: str, adding: bool) -> InlineKeyboardMarkup:
     kb.button(text=texts.BTN_CANCEL, callback_data=ServiceCb(action="cancel"))
     rows.append(1)
     kb.adjust(*rows)
+    return kb.as_markup()
+
+
+# --- Расписание ---
+
+
+class SchedCb(CallbackData, prefix="sch"):
+    """Данные кнопок раздела «Расписание»."""
+    action: str    # week, day, tpl, tpl_day, hour, save, off, cancel, ask, do
+    day: str = ""  # дата '2026-11-05' (для недели — её понедельник)
+    n: int = 0     # номер дня недели (tpl_day) или час (hour)
+    op: str = ""   # что сделать с неделей: apply, copy, clear
+
+
+def week_view(
+    monday: date, days: list[date], days_off: set[date], can_prev: bool, can_next: bool
+) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    for day in days:
+        mark = texts.DAY_BUTTON_OFF_MARK if day in days_off else ""
+        # Коротко «Пн 26»: по 4 кнопки в ряд длинный текст не влезет на экран телефона
+        label = f"{fmt.WEEKDAYS_SHORT[day.weekday()]} {day.day}{mark}"
+        kb.button(text=label, callback_data=SchedCb(action="day", day=day.isoformat()))
+    rows = [4, 3]
+
+    nav = 0
+    if can_prev:
+        kb.button(text=texts.BTN_PREV_WEEK, callback_data=SchedCb(action="week", day=monday.isoformat(), n=-1))
+        nav += 1
+    if can_next:
+        kb.button(text=texts.BTN_NEXT_WEEK, callback_data=SchedCb(action="week", day=monday.isoformat(), n=1))
+        nav += 1
+    if nav:
+        rows.append(nav)
+    if can_prev:  # можно листать назад — значит, мы не на текущей неделе
+        kb.button(text=texts.BTN_THIS_WEEK, callback_data=SchedCb(action="week"))
+        rows.append(1)
+
+    actions = [(texts.BTN_APPLY_TEMPLATE_WEEK, "apply")]
+    if can_next:  # копировать на следующую неделю, только если до неё можно дойти
+        actions.append((texts.BTN_COPY_WEEK, "copy"))
+    actions.append((texts.BTN_CLEAR_WEEK, "clear"))
+    for text, op in actions:
+        kb.button(text=text, callback_data=SchedCb(action="ask", day=monday.isoformat(), op=op))
+    kb.button(text=texts.BTN_TEMPLATE, callback_data=SchedCb(action="tpl"))
+    kb.button(text=texts.BTN_BACK, callback_data="m:menu")
+    rows += [1] * (len(actions) + 2)
+    kb.adjust(*rows)
+    return kb.as_markup()
+
+
+def template_view() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    for weekday, name in enumerate(fmt.WEEKDAYS_SHORT):
+        kb.button(text=name, callback_data=SchedCb(action="tpl_day", n=weekday))
+    kb.button(text=texts.BTN_TO_WEEK, callback_data=SchedCb(action="week"))
+    kb.adjust(7, 1)
+    return kb.as_markup()
+
+
+def day_editor(hours: set[int]) -> InlineKeyboardMarkup:
+    """Сетка часов-переключателей: ✅ — рабочий час."""
+    kb = InlineKeyboardBuilder()
+    for hour in GRID_HOURS:
+        mark = "✅ " if hour in hours else ""
+        # «10–11» понятнее, чем «10:00»: сразу видно, что кнопка — это целый час
+        kb.button(text=f"{mark}{hour}–{hour + 1}", callback_data=SchedCb(action="hour", n=hour))
+    kb.button(text=texts.BTN_SAVE, callback_data=SchedCb(action="save"))
+    kb.button(text=texts.BTN_DAY_OFF, callback_data=SchedCb(action="off"))
+    kb.button(text=texts.BTN_DISCARD, callback_data=SchedCb(action="cancel"))
+    kb.adjust(*[3] * (len(GRID_HOURS) // 3), 1, 1, 1)
+    return kb.as_markup()
+
+
+def confirm(op: str, monday: date) -> InlineKeyboardMarkup:
+    day = monday.isoformat()
+    kb = InlineKeyboardBuilder()
+    kb.button(text=texts.BTN_YES, callback_data=SchedCb(action="do", day=day, op=op))
+    kb.button(text=texts.BTN_NO, callback_data=SchedCb(action="week", day=day))
+    kb.adjust(2)
     return kb.as_markup()
