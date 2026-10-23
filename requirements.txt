@@ -1,0 +1,4 @@
+aiogram==3.31.0
+aiosqlite==0.22.1
+pydantic-settings==2.16.1
+tzdata==2026.5

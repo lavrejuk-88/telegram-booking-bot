@@ -1,0 +1,12 @@
+# Секреты
+.env
+
+# Локальные данные и логи
+*.db
+*.db-journal
+bot.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/

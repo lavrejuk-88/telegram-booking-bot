@@ -1,0 +1,56 @@
+"""Точка входа. Запуск: python bot.py"""
+import asyncio
+import logging
+
+from aiogram import Bot, Dispatcher
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
+from aiogram.types import BotCommand
+
+import db
+import texts
+from config import settings
+from handlers import client, master
+
+
+def setup_logging() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler("bot.log", encoding="utf-8"),
+        ],
+    )
+
+
+async def main() -> None:
+    setup_logging()
+    await db.init_db()
+
+    bot = Bot(
+        token=settings.bot_token.get_secret_value(),
+        # HTML-разметка во всех сообщениях: <b>жирный</b>, <i>курсив</i>
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+    )
+    dp = Dispatcher()
+
+    # Порядок важен: сначала роутер специалиста, потом клиента.
+    # Сообщение от специалиста обработает его роутер; от остальных — клиентский.
+    dp.include_router(master.router)
+    dp.include_router(client.router)
+
+    # Команды для кнопки «Меню» рядом с полем ввода
+    await bot.set_my_commands([BotCommand(command="start", description=texts.CMD_START_DESCRIPTION)])
+
+    # Пропускаем сообщения, которые пришли, пока бот был выключен
+    await bot.delete_webhook(drop_pending_updates=True)
+    logging.info("Бот запущен")
+    await dp.start_polling(bot)
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logging.info("Бот остановлен")
