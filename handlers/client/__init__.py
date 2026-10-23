@@ -1,7 +1,7 @@
 """Хендлеры клиента: всё, что видит обычный пользователь."""
 from aiogram import Router
 
-from . import booking, fallback, menu
+from . import booking, fallback, menu, my_booking
 from .menu import menu_content  # нужно специалисту для «Как видит клиент»
 
 router = Router()
@@ -10,6 +10,7 @@ router = Router()
 # fallback — последним, в нём «ловушка» для всего остального.
 router.include_router(menu.router)
 router.include_router(booking.router)
+router.include_router(my_booking.router)
 router.include_router(fallback.router)
 
 __all__ = ["router", "menu_content"]

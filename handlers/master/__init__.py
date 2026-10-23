@@ -7,7 +7,7 @@ from aiogram import F, Router
 
 from config import settings
 
-from . import fallback, menu, schedule, services
+from . import bookings, fallback, menu, schedule, services
 
 router = Router()
 router.message.filter(F.from_user.id == settings.master_tg_id)
@@ -19,4 +19,5 @@ router.callback_query.filter(F.from_user.id == settings.master_tg_id)
 router.include_router(menu.router)
 router.include_router(services.router)
 router.include_router(schedule.router)
+router.include_router(bookings.router)
 router.include_router(fallback.router)

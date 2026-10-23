@@ -8,7 +8,8 @@
 Пока специалист отмечает часы, черновик хранится в FSM (ключ 'draft'),
 а в базу попадает только по кнопке «Сохранить».
 """
-from datetime import date, timedelta
+import html
+from datetime import date, datetime, timedelta
 
 from aiogram import Bot, F, Router
 from aiogram.fsm.context import FSMContext
@@ -16,8 +17,9 @@ from aiogram.types import CallbackQuery
 
 import db
 import formatting as fmt
+import notifications
 import texts
-from config import now, settings
+from config import DB_DATETIME_FORMAT, now, settings
 from handlers.common import edit_or_send
 from keyboards import master as kb
 from keyboards.master import SchedCb
@@ -172,13 +174,15 @@ async def editor_action(callback: CallbackQuery, callback_data: SchedCb, state: 
 
     # save или off: сохраняем (для «Сделать выходным» — пустой список часов)
     intervals = hours_to_intervals(draft["hours"]) if callback_data.action == "save" else []
-    if draft["day"]:
-        await db.set_days({date.fromisoformat(draft["day"]): intervals})
-    else:
-        await db.set_template_day(draft["weekday"], intervals)
-    await state.clear()
-    await back_from_editor(bot, chat_id, message_id, draft, note=texts.SCHEDULE_SAVED)
     await callback.answer()
+    if draft["day"]:
+        day = date.fromisoformat(draft["day"])
+        await save_days(bot, chat_id, message_id, state, {day: intervals}, week_start(day), texts.SCHEDULE_SAVED)
+    else:
+        # Шаблон — это только «заготовка», записи клиентов он не задевает
+        await db.set_template_day(draft["weekday"], intervals)
+        await state.clear()
+        await back_from_editor(bot, chat_id, message_id, draft, note=texts.SCHEDULE_SAVED)
 
 
 # --- Операции с неделей: сначала подтверждение, потом выполнение ---
@@ -203,22 +207,118 @@ async def ask_confirm(callback: CallbackQuery, callback_data: SchedCb, bot: Bot)
 
 
 @router.callback_query(SchedCb.filter(F.action == "do"))
-async def do_operation(callback: CallbackQuery, callback_data: SchedCb, bot: Bot) -> None:
+async def do_operation(callback: CallbackQuery, callback_data: SchedCb, state: FSMContext, bot: Bot) -> None:
     op = callback_data.op
     chat_id, message_id = callback.message.chat.id, callback.message.message_id
     monday = date.fromisoformat(callback_data.day)
     # Прошедшие дни недели не трогаем
     future_days = [day for day in week_days(monday) if day >= today()]
+    await callback.answer()
 
     if op == "apply":
         template = await db.get_template()
-        await db.set_days({day: template[day.weekday()] for day in future_days})
-        await show_week(bot, chat_id, message_id, monday, note=texts.DONE_APPLY_WEEK)
+        days = {day: template[day.weekday()] for day in future_days}
+        await save_days(bot, chat_id, message_id, state, days, monday, texts.DONE_APPLY_WEEK)
     elif op == "copy":
         source = await db.get_intervals(monday, monday + timedelta(days=6))
-        await db.set_days({day + timedelta(weeks=1): intervals for day, intervals in source.items()})
-        await show_week(bot, chat_id, message_id, monday + timedelta(weeks=1), note=texts.DONE_COPY_WEEK)
+        days = {day + timedelta(weeks=1): intervals for day, intervals in source.items()}
+        await save_days(bot, chat_id, message_id, state, days, monday + timedelta(weeks=1), texts.DONE_COPY_WEEK)
     elif op == "clear":
-        await db.set_days({day: [] for day in future_days})
-        await show_week(bot, chat_id, message_id, monday, note=texts.DONE_CLEAR_WEEK)
+        await save_days(bot, chat_id, message_id, state, {day: [] for day in future_days}, monday, texts.DONE_CLEAR_WEEK)
+
+
+# --- Защита записей: новое расписание не должно молча «выкинуть» клиентов ---
+
+
+async def find_conflicts(days: dict[date, list[tuple[str, str]]]) -> list:
+    """Будущие записи в этих днях, которые не помещаются в новое рабочее время."""
+    first = max(datetime.combine(min(days), datetime.min.time()), now())
+    last = datetime.combine(max(days) + timedelta(days=1), datetime.min.time())
+    bookings = await db.list_bookings(first.strftime(DB_DATETIME_FORMAT), last.strftime(DB_DATETIME_FORMAT))
+    conflicts = []
+    for booking in bookings:
+        start = datetime.strptime(booking["start_at"], DB_DATETIME_FORMAT)
+        end = datetime.strptime(booking["end_at"], DB_DATETIME_FORMAT)
+        day = start.date()
+        if day not in days:
+            continue
+        work = [(datetime.fromisoformat(f"{day} {a}"), datetime.fromisoformat(f"{day} {b}")) for a, b in days[day]]
+        if not any(a <= start and end <= b for a, b in work):
+            conflicts.append(booking)
+    return conflicts
+
+
+async def save_days(
+    bot: Bot, chat_id: int, message_id: int, state: FSMContext,
+    days: dict[date, list[tuple[str, str]]], monday: date, note: str,
+) -> None:
+    """Сохраняет новое расписание дней. Если оно задевает записи — сначала спрашивает специалиста."""
+    conflicts = await find_conflicts(days)
+    if not conflicts:
+        await db.set_days(days)
+        await state.clear()
+        await show_week(bot, chat_id, message_id, monday, note=note)
+        return
+
+    # Запоминаем, что хотели сохранить, и спрашиваем, что делать с записями
+    await state.set_data({"pending": {
+        "days": {day.isoformat(): [list(i) for i in intervals] for day, intervals in days.items()},
+        "monday": monday.isoformat(),
+        "note": note,
+        "booking_ids": [b["id"] for b in conflicts],
+    }})
+    lines = []
+    for booking in conflicts:
+        start = datetime.strptime(booking["start_at"], DB_DATETIME_FORMAT)
+        lines.append(texts.CONFLICT_LINE.format(
+            day=fmt.day_short(start.date()), start=f"{start:%H:%M}",
+            name=html.escape(booking["client_name"]), service=html.escape(booking["service_title"]),
+        ))
+    text = texts.CONFLICT.format(lines="\n".join(lines))
+    await edit_or_send(bot, chat_id, message_id, text, kb.schedule_conflict())
+
+
+def keep_booking_hours(days: dict[date, list[tuple[str, str]]], bookings: list) -> dict[date, list[tuple[str, str]]]:
+    """Добавляет к новому расписанию часы, на которые записаны клиенты."""
+    hours_by_day = {day: intervals_to_hours(intervals) for day, intervals in days.items()}
+    for booking in bookings:
+        start = datetime.strptime(booking["start_at"], DB_DATETIME_FORMAT)
+        end = datetime.strptime(booking["end_at"], DB_DATETIME_FORMAT)
+        last_hour = end.hour + (1 if end.minute else 0)  # запись до 14:30 занимает и час 14–15
+        hours_by_day[start.date()].update(range(start.hour, last_hour))
+    return {day: hours_to_intervals(hours) for day, hours in hours_by_day.items()}
+
+
+@router.callback_query(SchedCb.filter(F.action == "conf"))
+async def resolve_conflict(callback: CallbackQuery, callback_data: SchedCb, state: FSMContext, bot: Bot) -> None:
+    pending = (await state.get_data()).get("pending")
+    if pending is None:
+        await callback.answer(texts.STALE_BUTTON, show_alert=True)
+        return
     await callback.answer()
+    chat_id, message_id = callback.message.chat.id, callback.message.message_id
+    monday = date.fromisoformat(pending["monday"])
+    days = {date.fromisoformat(d): [tuple(i) for i in intervals] for d, intervals in pending["days"].items()}
+    await state.clear()
+
+    if callback_data.op == "abort":
+        await show_week(bot, chat_id, message_id, monday, note=texts.CONFLICT_ABORTED)
+        return
+
+    bookings = [await db.get_booking_details(booking_id) for booking_id in pending["booking_ids"]]
+    bookings = [b for b in bookings if b is not None and b["status"] == "active"]
+
+    if callback_data.op == "keep":
+        await db.set_days(keep_booking_hours(days, bookings))
+        await show_week(bot, chat_id, message_id, monday, note=texts.CONFLICT_KEPT)
+        return
+
+    # cancel: сначала сохраняем расписание, потом отменяем записи и пишем клиентам
+    await db.set_days(days)
+    cancelled = []
+    for booking in bookings:
+        if await db.cancel_booking(booking["id"], by="master", reason=texts.CONFLICT_REASON):
+            cancelled.append(booking)
+    await show_week(bot, chat_id, message_id, monday, note=texts.CONFLICT_CANCELLED.format(count=len(cancelled)))
+    for booking in cancelled:
+        await notifications.notify_client_cancelled(bot, booking, texts.CONFLICT_REASON)

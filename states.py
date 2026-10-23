@@ -14,6 +14,11 @@ class BookingForm(StatesGroup):
     phone = State()
 
 
+class MasterCancel(StatesGroup):
+    """Специалист отменяет запись и пишет причину."""
+    reason = State()
+
+
 class ServiceForm(StatesGroup):
     """Добавление услуги (все шаги по очереди) или изменение одного поля."""
     title = State()

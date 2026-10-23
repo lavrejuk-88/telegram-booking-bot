@@ -74,6 +74,51 @@ ALREADY_BOOKED = (
     "Записаться можно только на один визит. "
     "Чтобы выбрать другое время, перенесите или отмените запись в разделе «Моя запись»."
 )
+# --- Клиент: моя запись ---
+
+MY_BOOKING = (
+    "📋 <b>Ваша запись</b>\n\n"
+    "✨ {service} · {price}\n"
+    "📅 {day}\n"
+    "🕐 {start}–{end} ({tz})\n\n"
+    "<i>Оплата на месте.</i>"
+)
+NO_BOOKING = "У вас сейчас нет записи. Хотите записаться?"
+BTN_RESCHEDULE = "🔁 Перенести"
+BTN_CANCEL_BOOKING = "❌ Отменить"
+
+CANCEL_CONFIRM = "Точно отменить запись?\n\n✨ {service}\n📅 {day}, {start} ({tz})"
+BTN_CANCEL_YES = "✅ Да, отменить запись"
+BTN_CANCEL_NO = "⬅️ Нет, оставить"
+CANCELLED_BY_CLIENT = "Запись отменена. Будем рады видеть вас в другой раз!"
+BTN_BOOK_AGAIN = "📅 Записаться снова"
+BOOKING_GONE = "Эта запись уже неактивна"
+
+RESCHEDULE_DAY = "🔁 <b>Перенос записи</b>\n✨ {service} · сейчас: {current}\n\n📅 Выберите новый день:"
+RESCHEDULE_NO_DAYS = (
+    "🔁 <b>Перенос записи</b>\n\n"
+    "Другого свободного времени пока нет. Ваша запись остаётся в силе. "
+    "Можно написать мастеру — возможно, он подберёт время."
+)
+RESCHEDULE_TIME = "🔁 <b>Перенос записи</b>\n✨ {service} · {day}\n\n🕐 Выберите новое время ({tz}):"
+RESCHEDULE_CONFIRM = (
+    "🔁 <b>Перенести запись?</b>\n\n"
+    "✨ {service}\n"
+    "Было: <s>{old}</s>\n"
+    "Станет: <b>{new}</b> ({tz})"
+)
+BTN_RESCHEDULE_YES = "✅ Да, перенести"
+RESCHEDULED = "✅ <b>Запись перенесена</b>\n\n✨ {service}\n📅 {new} ({tz})\n\nОплата на месте. Ждём вас!"
+
+# Мастер отменил запись — сообщение клиенту
+CLIENT_CANCELLED_BY_MASTER = (
+    "😔 <b>Мастер отменил вашу запись</b>\n\n"
+    "✨ {service}\n"
+    "📅 {day}, {start} ({tz})"
+)
+CLIENT_CANCEL_REASON = "\n\nПричина: {reason}"
+CLIENT_CANCEL_SORRY = "\n\nПриносим извинения. Вы можете выбрать другое время."
+
 SLOT_TAKEN = "😔 Это время только что заняли. Выберите, пожалуйста, другое."
 SLOT_TAKEN_ALERT = "Это время уже заняли"
 SERVICE_GONE = "Эта услуга сейчас недоступна. Выберите другую."
@@ -88,7 +133,8 @@ BTN_M_SERVICES = "🧾 Услуги"
 BTN_M_SETTINGS = "⚙️ Настройки"
 BTN_M_CLIENT_VIEW = "👀 Как видит клиент"
 
-CLIENT_VIEW_HINT = "<i>Так меню видит клиент. Вернуться в своё меню: /start</i>"
+CLIENT_VIEW_HINT = "<i>Так меню видит клиент. Кнопку «Вернуться в меню специалиста» видите только вы.</i>"
+BTN_BACK_TO_MASTER = "🔙 Вернуться в меню специалиста"
 
 # --- Специалист: уведомления ---
 
@@ -100,6 +146,75 @@ NOTIFY_NEW_BOOKING = (
     "📅 <b>{day}, {start}–{end}</b>"
 )
 BTN_WRITE_CLIENT = "💬 Написать клиенту"
+
+NOTIFY_CANCELLED = "❌ <b>Клиент отменил запись</b>\n\n{summary}\n\n<i>Это время снова свободно для записи.</i>"
+NOTIFY_RESCHEDULED = (
+    "🔁 <b>Клиент перенёс запись</b>\n\n"
+    "👤 {client}\n"
+    "📱 {phone}\n"
+    "✨ «{service}», {duration} · {price}\n"
+    "Было: <s>{old}</s>\n"
+    "Стало: <b>{new}</b>"
+)
+
+# Короткое описание записи — в уведомлениях и карточке записи у мастера
+BOOKING_SUMMARY = (
+    "👤 {client}\n"
+    "📱 {phone}\n"
+    "✨ «{service}», {duration} · {price}\n"
+    "📅 <b>{day}, {start}–{end}</b>"
+)
+
+# --- Специалист: записи ---
+
+BTN_F_TODAY = "Сегодня"
+BTN_F_TOMORROW = "Завтра"
+BTN_F_WEEK = "7 дней"
+BTN_F_ALL = "Все"
+FILTER_TITLES = {
+    "today": "сегодня",
+    "tomorrow": "завтра",
+    "week": "ближайшие 7 дней",
+    "all": "все будущие",
+}
+BOOKINGS_TITLE = "📒 <b>Записи: {title}</b>"
+BOOKINGS_EMPTY = "Записей нет."
+BOOKINGS_DAY_HEADER = "\n<b>{day}</b>"
+BOOKINGS_LINE = "🕐 {start}–{end} · {service} · {name}"
+BOOKINGS_HINT = "\nНажмите на запись, чтобы открыть её."
+BOOKINGS_LIMIT = "\n<i>Показаны первые {limit}. Остальные — в фильтрах по дням.</i>"
+BOOKING_BUTTON = "{day} {start} · {name}"
+
+BOOKING_CARD = "📋 <b>Запись</b>\n\n{summary}"
+BTN_M_CANCEL_BOOKING = "❌ Отменить запись"
+BTN_TO_BOOKINGS = "⬅️ К списку записей"
+
+ASK_CANCEL_REASON = (
+    "❌ <b>Отмена записи</b>\n\n{summary}\n\n"
+    "Напишите причину отмены — клиент увидит её в сообщении. "
+    "Или нажмите «Отменить без причины»."
+)
+BTN_NO_REASON = "Отменить без причины"
+BTN_DONT_CANCEL = "⬅️ Не отменять"
+ERR_REASON = "Причина слишком длинная: можно до {max} символов."
+MASTER_CANCELLED = "✅ Запись отменена, клиент получил уведомление."
+MASTER_CANCEL_GONE = "Эта запись уже отменена или перенесена"
+
+# --- Специалист: защита записей при изменении расписания ---
+
+CONFLICT = (
+    "⚠️ <b>На это время уже записаны клиенты</b>\n\n"
+    "{lines}\n\n"
+    "Что сделать?"
+)
+CONFLICT_LINE = "• {day}, {start} — {name} («{service}»)"
+BTN_CONFLICT_KEEP = "✅ Оставить эти часы рабочими"
+BTN_CONFLICT_CANCEL = "❌ Отменить записи и уведомить клиентов"
+BTN_CONFLICT_ABORT = "✖️ Ничего не менять"
+CONFLICT_REASON = "у мастера изменилось расписание"
+CONFLICT_KEPT = "✅ Сохранено. Часы с записями клиентов оставлены рабочими."
+CONFLICT_CANCELLED = "✅ Сохранено. Записей отменено: {count}, клиенты получили уведомления."
+CONFLICT_ABORTED = "Ничего не изменилось."
 
 # --- Специалист: услуги ---
 

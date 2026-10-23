@@ -167,3 +167,56 @@ def confirm(op: str, monday: date) -> InlineKeyboardMarkup:
     kb.button(text=texts.BTN_NO, callback_data=SchedCb(action="week", day=day))
     kb.adjust(2)
     return kb.as_markup()
+
+
+def schedule_conflict() -> InlineKeyboardMarkup:
+    """Что делать, если новое расписание задевает записи клиентов."""
+    kb = InlineKeyboardBuilder()
+    kb.button(text=texts.BTN_CONFLICT_KEEP, callback_data=SchedCb(action="conf", op="keep"))
+    kb.button(text=texts.BTN_CONFLICT_CANCEL, callback_data=SchedCb(action="conf", op="cancel"))
+    kb.button(text=texts.BTN_CONFLICT_ABORT, callback_data=SchedCb(action="conf", op="abort"))
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+# --- Записи ---
+
+
+class MasterBookingCb(CallbackData, prefix="mb"):
+    action: str    # list, open, cancel, nocause
+    id: int = 0    # id записи
+    f: str = "today"  # фильтр списка: today, tomorrow, week, all
+
+
+BOOKING_FILTERS = [("today", texts.BTN_F_TODAY), ("tomorrow", texts.BTN_F_TOMORROW),
+                   ("week", texts.BTN_F_WEEK), ("all", texts.BTN_F_ALL)]
+
+
+def bookings_list(bookings: list, current: str, labels: list[str]) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    for code, text in BOOKING_FILTERS:
+        mark = "• " if code == current else ""
+        kb.button(text=f"{mark}{text}", callback_data=MasterBookingCb(action="list", f=code))
+    for booking, label in zip(bookings, labels):
+        kb.button(text=label, callback_data=MasterBookingCb(action="open", id=booking["id"], f=current))
+    kb.button(text=texts.BTN_BACK, callback_data="m:menu")
+    kb.adjust(4, *[1] * len(bookings), 1)
+    return kb.as_markup()
+
+
+def booking_card(booking, current: str) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text=texts.BTN_M_CANCEL_BOOKING, callback_data=MasterBookingCb(action="cancel", id=booking["id"], f=current))
+    if booking["client_username"]:
+        kb.button(text=texts.BTN_WRITE_CLIENT, url=f"https://t.me/{booking['client_username']}")
+    kb.button(text=texts.BTN_TO_BOOKINGS, callback_data=MasterBookingCb(action="list", f=current))
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+def cancel_reason(booking_id: int, current: str) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text=texts.BTN_NO_REASON, callback_data=MasterBookingCb(action="nocause", id=booking_id, f=current))
+    kb.button(text=texts.BTN_DONT_CANCEL, callback_data=MasterBookingCb(action="open", id=booking_id, f=current))
+    kb.adjust(1)
+    return kb.as_markup()

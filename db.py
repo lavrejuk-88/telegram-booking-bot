@@ -302,7 +302,7 @@ async def get_intervals(first: date, last: date) -> dict[date, list[tuple[str, s
 async def set_days(days: dict[date, list[tuple[str, str]]]) -> None:
     """Заменяет расписание указанных дней. Всё в одной транзакции: либо все дни, либо ни одного.
 
-    TODO (этап 5): перед заменой проверять, не остаются ли записи клиентов вне рабочего времени.
+    Записи клиентов здесь не проверяются — это делает раздел расписания (save_days) до вызова.
     """
     async with connect() as conn:
         for day, intervals in days.items():
@@ -350,7 +350,8 @@ class BookingError(Exception):
     'taken'       — время заняли, оно прошло или вне рабочего времени;
     'has_booking' — у клиента уже есть будущая запись;
     'service'     — услуга удалена или скрыта;
-    'client'      — нет имени или телефона клиента.
+    'client'      — нет имени или телефона клиента;
+    'gone'        — (при переносе) запись уже отменена или прошла.
     """
 
     def __init__(self, code: str):
@@ -358,29 +359,53 @@ class BookingError(Exception):
         self.code = code
 
 
-async def get_busy(first: str, last: str) -> list[tuple[str, str]]:
-    """Активные записи, которые пересекаются с отрезком [first, last)."""
+# Запись вместе со всем, что нужно показать: клиент, услуга, время
+BOOKING_DETAILS = (
+    "SELECT b.*, s.title AS service_title,"
+    "       c.tg_id AS client_tg_id, c.name AS client_name,"
+    "       c.username AS client_username, c.phone AS client_phone"
+    " FROM bookings b"
+    " JOIN clients c ON c.id = b.client_id"
+    " JOIN services s ON s.id = b.service_id"
+)
+
+
+async def get_busy(first: str, last: str, exclude_booking_id: int | None = None) -> list[tuple[str, str]]:
+    """Активные записи, которые пересекаются с отрезком [first, last).
+
+    exclude_booking_id — не считать эту запись занятой. Нужно при переносе:
+    клиент может сдвинуть свою запись на полчаса, «наехав» на собственное старое время.
+    """
+    sql = "SELECT start_at, end_at FROM bookings WHERE status = 'active' AND start_at < ? AND end_at > ?"
+    params = [last, first]
+    if exclude_booking_id is not None:
+        sql += " AND id != ?"
+        params.append(exclude_booking_id)
     async with connect() as conn:
-        cursor = await conn.execute(
-            "SELECT start_at, end_at FROM bookings"
-            " WHERE status = 'active' AND start_at < ? AND end_at > ?",
-            (last, first),
-        )
+        cursor = await conn.execute(sql, params)
         return [(row["start_at"], row["end_at"]) for row in await cursor.fetchall()]
 
 
 async def get_active_booking(client_tg_id: int) -> aiosqlite.Row | None:
-    """Будущая активная запись клиента вместе с названием услуги."""
+    """Будущая активная запись клиента."""
     async with connect() as conn:
         cursor = await conn.execute(
-            "SELECT b.*, s.title AS service_title FROM bookings b"
-            " JOIN clients c ON c.id = b.client_id"
-            " JOIN services s ON s.id = b.service_id"
-            " WHERE c.tg_id = ? AND b.status = 'active' AND b.start_at > ?"
+            BOOKING_DETAILS + " WHERE c.tg_id = ? AND b.status = 'active' AND b.start_at > ?"
             " ORDER BY b.start_at LIMIT 1",
             (client_tg_id, now_str()),
         )
         return await cursor.fetchone()
+
+
+async def list_bookings(first: str, last: str) -> list[aiosqlite.Row]:
+    """Активные записи, которые начинаются в отрезке [first, last), по порядку."""
+    async with connect() as conn:
+        cursor = await conn.execute(
+            BOOKING_DETAILS + " WHERE b.status = 'active' AND b.start_at >= ? AND b.start_at < ?"
+            " ORDER BY b.start_at",
+            (first, last),
+        )
+        return list(await cursor.fetchall())
 
 
 async def create_booking(client_tg_id: int, service_id: int, start_at: str, horizon: str) -> int:
@@ -437,19 +462,72 @@ async def create_booking(client_tg_id: int, service_id: int, start_at: str, hori
 
 
 async def get_booking_details(booking_id: int) -> aiosqlite.Row | None:
-    """Запись со всем, что нужно для уведомления: клиент, услуга, время."""
+    async with connect() as conn:
+        cursor = await conn.execute(BOOKING_DETAILS + " WHERE b.id = ?", (booking_id,))
+        return await cursor.fetchone()
+
+
+async def cancel_booking(booking_id: int, by: str, reason: str | None = None) -> bool:
+    """Отменяет активную запись. by — кто отменил: 'client' или 'master'.
+
+    Возвращает False, если запись уже не активна (например, её только что отменили с другой стороны).
+    Запись не удаляется: остаётся в истории со статусом 'cancelled', а время освобождается.
+    """
     async with connect() as conn:
         cursor = await conn.execute(
-            "SELECT b.*, s.title AS service_title, s.duration_min,"
-            "       c.tg_id AS client_tg_id, c.name AS client_name,"
-            "       c.username AS client_username, c.phone AS client_phone"
-            " FROM bookings b"
-            " JOIN clients c ON c.id = b.client_id"
-            " JOIN services s ON s.id = b.service_id"
-            " WHERE b.id = ?",
-            (booking_id,),
+            "UPDATE bookings SET status = 'cancelled', cancelled_at = ?, cancelled_by = ?, cancel_reason = ?"
+            " WHERE id = ? AND status = 'active'",
+            (now_str(), by, reason, booking_id),
         )
-        return await cursor.fetchone()
+        await conn.commit()
+        return cursor.rowcount > 0
+
+
+async def reschedule_booking(booking_id: int, client_tg_id: int, new_start: str, horizon: str) -> int:
+    """Переносит запись на новое время и возвращает id новой записи. Если нельзя — BookingError.
+
+    Старая запись получает статус 'rescheduled', новая ссылается на неё (rescheduled_from).
+    Всё в одной транзакции: старое время освобождается только если новое удалось занять.
+    Коды ошибок: 'gone' — переносить нечего (запись отменена или уже прошла), 'taken' — время занято.
+    """
+    async with transaction() as conn:
+        current = now_str()
+        cursor = await conn.execute(
+            "SELECT b.* FROM bookings b JOIN clients c ON c.id = b.client_id"
+            " WHERE b.id = ? AND c.tg_id = ? AND b.status = 'active' AND b.start_at > ?",
+            (booking_id, client_tg_id, current),
+        )
+        old = await cursor.fetchone()
+        if old is None:
+            raise BookingError("gone")
+
+        # Длительность и цена — как в исходной записи, даже если услугу с тех пор изменили
+        duration = datetime.strptime(old["end_at"], DB_DATETIME_FORMAT) - datetime.strptime(old["start_at"], DB_DATETIME_FORMAT)
+        new_end = (datetime.strptime(new_start, DB_DATETIME_FORMAT) + duration).strftime(DB_DATETIME_FORMAT)
+        if not current < new_start <= horizon:
+            raise BookingError("taken")
+
+        cursor = await conn.execute(
+            "SELECT 1 FROM work_intervals WHERE start_at <= ? AND end_at >= ?", (new_start, new_end)
+        )
+        if await cursor.fetchone() is None:
+            raise BookingError("taken")
+
+        # Пересечение с чужими записями (свою старую не считаем)
+        cursor = await conn.execute(
+            "SELECT 1 FROM bookings WHERE status = 'active' AND start_at < ? AND end_at > ? AND id != ?",
+            (new_end, new_start, booking_id),
+        )
+        if await cursor.fetchone():
+            raise BookingError("taken")
+
+        await conn.execute("UPDATE bookings SET status = 'rescheduled' WHERE id = ?", (booking_id,))
+        cursor = await conn.execute(
+            "INSERT INTO bookings (master_id, client_id, service_id, start_at, end_at, price, created_at, rescheduled_from)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (old["master_id"], old["client_id"], old["service_id"], new_start, new_end, old["price"], current, booking_id),
+        )
+        return cursor.lastrowid
 
 
 async def has_active_booking(client_tg_id: int) -> bool:

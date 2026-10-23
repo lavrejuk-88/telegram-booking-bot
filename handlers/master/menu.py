@@ -10,7 +10,7 @@ from keyboards import master as kb
 router = Router()
 
 # На каком этапе разработки появится раздел
-STAGES = {"m:bookings": 5, "m:settings": 7}
+STAGES = {"m:settings": 7}
 
 
 @router.message(CommandStart())

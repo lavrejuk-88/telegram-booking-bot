@@ -8,6 +8,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
 import db
 import texts
+from config import settings
 from handlers.common import edit_or_send
 from keyboards import client as kb
 
@@ -19,7 +20,10 @@ async def menu_content(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
     master = await db.get_master()
     # escape: текст приветствия пишет специалист, и символы вроде '<' не должны ломать разметку
     welcome = html.escape(master["welcome_text"] or texts.DEFAULT_WELCOME)
-    return welcome, kb.main_menu(has_booking=await db.has_active_booking(user_id))
+    return welcome, kb.main_menu(
+        has_booking=await db.has_active_booking(user_id),
+        is_master=user_id == settings.master_tg_id,
+    )
 
 
 @router.message(CommandStart())
@@ -36,8 +40,3 @@ async def back_to_menu(callback: CallbackQuery, state: FSMContext, bot: Bot) -> 
     text, markup = await menu_content(callback.from_user.id)
     await edit_or_send(bot, callback.message.chat.id, callback.message.message_id, text, markup)
     await callback.answer()
-
-
-@router.callback_query(F.data == "c:my_booking")
-async def coming_soon(callback: CallbackQuery) -> None:
-    await callback.answer(texts.COMING_SOON.format(stage=5), show_alert=True)
