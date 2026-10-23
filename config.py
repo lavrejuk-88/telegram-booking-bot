@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     master_username: str
 
     timezone: str = "Europe/Moscow"
-    timezone_label: str = "московское"
+    timezone_label: str = "МСК"
     booking_step_min: int = 30
     booking_horizon_days: int = 60
     db_path: str = "bot.db"

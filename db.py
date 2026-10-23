@@ -4,13 +4,13 @@
 Остальной код не пишет SQL сам, а вызывает функции из этого файла.
 """
 from contextlib import asynccontextmanager
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import AsyncIterator
 
 import aiosqlite
 
 import texts
-from config import now_str, settings
+from config import DB_DATETIME_FORMAT, now_str, settings
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS masters (
@@ -98,19 +98,40 @@ DEMO_WEEK_TEMPLATE = [
 
 
 @asynccontextmanager
-async def connect() -> AsyncIterator[aiosqlite.Connection]:
+async def connect(**kwargs) -> AsyncIterator[aiosqlite.Connection]:
     """Открывает подключение к БД.
 
     Использование:
         async with db.connect() as conn:
             await conn.execute(...)
     """
-    async with aiosqlite.connect(settings.db_path) as conn:
+    async with aiosqlite.connect(settings.db_path, **kwargs) as conn:
         # Строки из БД можно читать по имени колонки: row["title"]
         conn.row_factory = aiosqlite.Row
         # Без этой команды SQLite не проверяет связи REFERENCES между таблицами
         await conn.execute("PRAGMA foreign_keys = ON")
         yield conn
+
+
+@asynccontextmanager
+async def transaction() -> AsyncIterator[aiosqlite.Connection]:
+    """Подключение с «эксклюзивной» транзакцией BEGIN IMMEDIATE.
+
+    Пока транзакция идёт, никто другой не может ничего записать в базу:
+    второй запрос на запись подождёт, пока первый закончит.
+    Так «проверить, что время свободно» и «сохранить запись» происходят
+    как одно неделимое действие, и два клиента не займут одно время.
+    Если внутри случится ошибка, все изменения отменятся (ROLLBACK).
+    """
+    # isolation_level=None: управляем транзакцией сами, Python не начинает её за нас
+    async with connect(isolation_level=None) as conn:
+        await conn.execute("BEGIN IMMEDIATE")
+        try:
+            yield conn
+        except BaseException:
+            await conn.execute("ROLLBACK")
+            raise
+        await conn.execute("COMMIT")
 
 
 async def init_db() -> None:
@@ -297,7 +318,122 @@ async def set_days(days: dict[date, list[tuple[str, str]]]) -> None:
         await conn.commit()
 
 
+# --- Клиенты ---
+
+
+async def get_client(tg_id: int) -> aiosqlite.Row | None:
+    async with connect() as conn:
+        cursor = await conn.execute("SELECT * FROM clients WHERE tg_id = ?", (tg_id,))
+        return await cursor.fetchone()
+
+
+async def save_client(tg_id: int, username: str | None, name: str | None = None, phone: str | None = None) -> None:
+    """Создаёт клиента или обновляет его данные. Поля со значением None не меняются."""
+    async with connect() as conn:
+        await conn.execute(
+            "INSERT INTO clients (tg_id, username, name, phone, created_at) VALUES (?, ?, ?, ?, ?)"
+            " ON CONFLICT(tg_id) DO UPDATE SET"
+            "   username = excluded.username,"
+            "   name  = COALESCE(excluded.name, clients.name),"
+            "   phone = COALESCE(excluded.phone, clients.phone)",
+            (tg_id, username, name, phone, now_str()),
+        )
+        await conn.commit()
+
+
 # --- Записи ---
+
+
+class BookingError(Exception):
+    """Записать не получилось. code объясняет почему:
+
+    'taken'       — время заняли, оно прошло или вне рабочего времени;
+    'has_booking' — у клиента уже есть будущая запись;
+    'service'     — услуга удалена или скрыта;
+    'client'      — нет имени или телефона клиента.
+    """
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
+async def get_busy(first: str, last: str) -> list[tuple[str, str]]:
+    """Активные записи, которые пересекаются с отрезком [first, last)."""
+    async with connect() as conn:
+        cursor = await conn.execute(
+            "SELECT start_at, end_at FROM bookings"
+            " WHERE status = 'active' AND start_at < ? AND end_at > ?",
+            (last, first),
+        )
+        return [(row["start_at"], row["end_at"]) for row in await cursor.fetchall()]
+
+
+async def get_active_booking(client_tg_id: int) -> aiosqlite.Row | None:
+    """Будущая активная запись клиента вместе с названием услуги."""
+    async with connect() as conn:
+        cursor = await conn.execute(
+            "SELECT b.*, s.title AS service_title FROM bookings b"
+            " JOIN clients c ON c.id = b.client_id"
+            " JOIN services s ON s.id = b.service_id"
+            " WHERE c.tg_id = ? AND b.status = 'active' AND b.start_at > ?"
+            " ORDER BY b.start_at LIMIT 1",
+            (client_tg_id, now_str()),
+        )
+        return await cursor.fetchone()
+
+
+async def create_booking(client_tg_id: int, service_id: int, start_at: str, horizon: str) -> int:
+    """Создаёт запись и возвращает её id. Если нельзя — BookingError.
+
+    Все проверки повторяются внутри транзакции, даже если клиенту только что
+    показали это время как свободное: за секунды до нажатия его мог занять кто-то другой.
+    """
+    async with transaction() as conn:
+        cursor = await conn.execute("SELECT * FROM services WHERE id = ? AND is_active = 1", (service_id,))
+        service = await cursor.fetchone()
+        if service is None:
+            raise BookingError("service")
+
+        cursor = await conn.execute("SELECT * FROM clients WHERE tg_id = ?", (client_tg_id,))
+        client = await cursor.fetchone()
+        if client is None or not client["name"] or not client["phone"]:
+            raise BookingError("client")
+
+        current = now_str()
+        cursor = await conn.execute(
+            "SELECT 1 FROM bookings WHERE client_id = ? AND status = 'active' AND start_at > ?",
+            (client["id"], current),
+        )
+        if await cursor.fetchone():
+            raise BookingError("has_booking")
+
+        start = datetime.strptime(start_at, DB_DATETIME_FORMAT)
+        end_at = (start + timedelta(minutes=service["duration_min"])).strftime(DB_DATETIME_FORMAT)
+        if not current < start_at <= horizon:
+            raise BookingError("taken")
+
+        # Визит целиком внутри одного рабочего интервала?
+        cursor = await conn.execute(
+            "SELECT 1 FROM work_intervals WHERE start_at <= ? AND end_at >= ?", (start_at, end_at)
+        )
+        if await cursor.fetchone() is None:
+            raise BookingError("taken")
+
+        # Пересекается с чужой записью?
+        cursor = await conn.execute(
+            "SELECT 1 FROM bookings WHERE status = 'active' AND start_at < ? AND end_at > ?",
+            (end_at, start_at),
+        )
+        if await cursor.fetchone():
+            raise BookingError("taken")
+
+        cursor = await conn.execute(
+            "INSERT INTO bookings (master_id, client_id, service_id, start_at, end_at, price, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (service["master_id"], client["id"], service_id, start_at, end_at, service["price"], current),
+        )
+        return cursor.lastrowid
 
 
 async def has_active_booking(client_tg_id: int) -> bool:

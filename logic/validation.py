@@ -4,12 +4,15 @@
 или выбрасывает InvalidInput с понятным пользователю объяснением.
 Здесь нет ничего про Telegram, поэтому функции легко проверять отдельно.
 """
+import re
+
 import texts
 
 TITLE_MAX = 40          # длиннее не влезет в кнопку
 DESCRIPTION_MAX = 300
 DURATION_MIN, DURATION_MAX = 5, 720
 PRICE_MAX = 1_000_000
+CLIENT_NAME_MIN, CLIENT_NAME_MAX = 2, 50
 
 
 class InvalidInput(ValueError):
@@ -42,6 +45,29 @@ def service_price(text: str) -> int:
     if not value.isdigit() or int(value) > PRICE_MAX:
         raise InvalidInput(texts.ERR_PRICE)
     return int(value)
+
+
+def client_name(text: str) -> str:
+    name = " ".join(text.split())
+    if not CLIENT_NAME_MIN <= len(name) <= CLIENT_NAME_MAX or not any(ch.isalpha() for ch in name):
+        raise InvalidInput(texts.ERR_CLIENT_NAME.format(min=CLIENT_NAME_MIN, max=CLIENT_NAME_MAX))
+    return name
+
+
+def phone(text: str) -> str:
+    """Принимает номер в любом привычном виде и приводит к одному: '+7 900 123-45-67'.
+
+    Подходят: '89001234567', '+79001234567', '+7 (900) 123-45-67', '8 900 123 45 67', '9001234567'.
+    Иностранные номера принимаем, если они начинаются с '+': '+380 50 123 4567' → '+380501234567'
+    """
+    digits = re.sub(r"\D", "", text)  # оставляем только цифры: пробелы, скобки и дефисы не важны
+    if len(digits) == 10 and digits[0] == "9":
+        digits = "7" + digits
+    if len(digits) == 11 and digits[0] in "78":
+        return f"+7 {digits[1:4]} {digits[4:7]}-{digits[7:9]}-{digits[9:]}"
+    if text.strip().startswith("+") and 10 <= len(digits) <= 15:
+        return "+" + digits
+    raise InvalidInput(texts.ERR_PHONE)
 
 
 def service_description(text: str) -> str:
