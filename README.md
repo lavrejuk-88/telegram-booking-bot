@@ -35,6 +35,31 @@ Telegram-бот, через который клиенты сами записы�
   </tr>
 </table>
 
+Специалист: уведомления, меню, расписание и записи.
+
+<table>
+  <tr>
+    <td><img src="docs/screenshots/master-notification.png" width="260" alt="Уведомление о новой записи"></td>
+    <td><img src="docs/screenshots/master-menu.png" width="260" alt="Меню специалиста"></td>
+    <td><img src="docs/screenshots/master-bookings.png" width="260" alt="Список записей"></td>
+  </tr>
+  <tr>
+    <td align="center">Уведомление о новой записи</td>
+    <td align="center">Меню и постоянная кнопка внизу</td>
+    <td align="center">Записи с фильтрами по дням</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/master-week.png" width="260" alt="Расписание недели"></td>
+    <td><img src="docs/screenshots/master-day-editor.png" width="260" alt="Редактор дня"></td>
+    <td></td>
+  </tr>
+  <tr>
+    <td align="center">Расписание недели и шаблон</td>
+    <td align="center">Рабочие часы — нажатием на сетку</td>
+    <td></td>
+  </tr>
+</table>
+
 ---
 
 ## Возможности
