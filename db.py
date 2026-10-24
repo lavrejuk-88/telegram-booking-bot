@@ -29,7 +29,9 @@ CREATE TABLE IF NOT EXISTS services (
     price        INTEGER NOT NULL CHECK (price >= 0),
     description  TEXT,
     is_active    INTEGER NOT NULL DEFAULT 1,
-    sort_order   INTEGER NOT NULL DEFAULT 0
+    sort_order   INTEGER NOT NULL DEFAULT 0,
+    -- 1 = специалист удалил услугу, но на неё были записи: строку храним ради истории
+    is_deleted   INTEGER NOT NULL DEFAULT 0
 );
 
 -- weekday: 0 = понедельник ... 6 = воскресенье
@@ -138,8 +140,21 @@ async def init_db() -> None:
     """Создаёт таблицы (если их ещё нет) и запись о специалисте."""
     async with connect() as conn:
         await conn.executescript(SCHEMA)
+        await _migrate(conn)
         await _ensure_master(conn)
         await conn.commit()
+
+
+async def _migrate(conn: aiosqlite.Connection) -> None:
+    """Обновляет базу, созданную старой версией бота.
+
+    CREATE TABLE IF NOT EXISTS не добавляет новые колонки в уже существующую таблицу,
+    поэтому недостающие колонки добавляем сами.
+    """
+    cursor = await conn.execute("PRAGMA table_info(services)")
+    columns = {row["name"] for row in await cursor.fetchall()}
+    if "is_deleted" not in columns:
+        await conn.execute("ALTER TABLE services ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0")
 
 
 async def _ensure_master(conn: aiosqlite.Connection) -> None:
@@ -196,10 +211,10 @@ SERVICE_FIELDS = {"title", "duration_min", "price", "description"}
 
 
 async def list_services(only_active: bool = False) -> list[aiosqlite.Row]:
-    """Услуги в том порядке, в котором их видит клиент."""
-    sql = "SELECT * FROM services"
+    """Услуги в том порядке, в котором их видит клиент. Удалённые не попадают никогда."""
+    sql = "SELECT * FROM services WHERE is_deleted = 0"
     if only_active:
-        sql += " WHERE is_active = 1"
+        sql += " AND is_active = 1"
     sql += " ORDER BY sort_order, id"
     async with connect() as conn:
         cursor = await conn.execute(sql)
@@ -207,9 +222,36 @@ async def list_services(only_active: bool = False) -> list[aiosqlite.Row]:
 
 
 async def get_service(service_id: int) -> aiosqlite.Row | None:
+    """Услуга по id. Удалённая считается несуществующей (None)."""
     async with connect() as conn:
-        cursor = await conn.execute("SELECT * FROM services WHERE id = ?", (service_id,))
+        cursor = await conn.execute("SELECT * FROM services WHERE id = ? AND is_deleted = 0", (service_id,))
         return await cursor.fetchone()
+
+
+async def count_future_bookings(service_id: int) -> int:
+    async with connect() as conn:
+        cursor = await conn.execute(
+            "SELECT COUNT(*) AS n FROM bookings WHERE service_id = ? AND status = 'active' AND start_at > ?",
+            (service_id, now_str()),
+        )
+        return (await cursor.fetchone())["n"]
+
+
+async def delete_service(service_id: int) -> None:
+    """Удаляет услугу.
+
+    Если на услугу никто никогда не записывался — строка удаляется совсем.
+    Если записи были, удалить строку нельзя: на неё ссылаются записи (в том числе история).
+    Тогда услуга помечается удалённой: её не видят ни клиенты, ни специалист,
+    а уже сделанные записи остаются в силе.
+    """
+    async with connect() as conn:
+        cursor = await conn.execute("SELECT 1 FROM bookings WHERE service_id = ? LIMIT 1", (service_id,))
+        if await cursor.fetchone() is None:
+            await conn.execute("DELETE FROM services WHERE id = ?", (service_id,))
+        else:
+            await conn.execute("UPDATE services SET is_deleted = 1, is_active = 0 WHERE id = ?", (service_id,))
+        await conn.commit()
 
 
 async def add_service(title: str, duration_min: int, price: int, description: str | None) -> int:
@@ -245,7 +287,7 @@ async def toggle_service(service_id: int) -> None:
 async def move_service(service_id: int, step: int) -> None:
     """Сдвигает услугу в списке: step = -1 выше, +1 ниже."""
     async with connect() as conn:
-        cursor = await conn.execute("SELECT id FROM services ORDER BY sort_order, id")
+        cursor = await conn.execute("SELECT id FROM services WHERE is_deleted = 0 ORDER BY sort_order, id")
         ids = [row["id"] for row in await cursor.fetchall()]
         i = ids.index(service_id)
         j = i + step

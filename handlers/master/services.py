@@ -44,9 +44,11 @@ PARSERS = {
 # --- Экраны: список и карточка ---
 
 
-async def show_list(bot: Bot, chat_id: int, message_id: int | None) -> None:
+async def show_list(bot: Bot, chat_id: int, message_id: int | None, note: str = "") -> None:
     services = await db.list_services()
     text = texts.SERVICES_LIST if services else texts.SERVICES_EMPTY
+    if note:
+        text = f"{note}\n\n{text}"
     await edit_or_send(bot, chat_id, message_id, text, kb.services_list(services))
 
 
@@ -97,6 +99,35 @@ async def change_card(callback: CallbackQuery, callback_data: ServiceCb, bot: Bo
     else:
         await db.move_service(callback_data.id, -1 if callback_data.action == "up" else 1)
     await show_card(bot, callback.message.chat.id, callback.message.message_id, callback_data.id)
+    await callback.answer()
+
+
+@router.callback_query(ServiceCb.filter(F.action == "delete"))
+async def ask_delete(callback: CallbackQuery, callback_data: ServiceCb, bot: Bot) -> None:
+    service = await db.get_service(callback_data.id)
+    if service is None:
+        await callback.answer(texts.SERVICE_NOT_FOUND, show_alert=True)
+        await show_list(bot, callback.message.chat.id, callback.message.message_id)
+        return
+    text = texts.SERVICE_DELETE_CONFIRM.format(title=html.escape(service["title"]))
+    booked = await db.count_future_bookings(service["id"])
+    if booked:
+        text += texts.SERVICE_DELETE_HAS_BOOKINGS.format(count=booked)
+    markup = kb.service_delete_confirm(service["id"])
+    await edit_or_send(bot, callback.message.chat.id, callback.message.message_id, text, markup)
+    await callback.answer()
+
+
+@router.callback_query(ServiceCb.filter(F.action == "delete_ok"))
+async def do_delete(callback: CallbackQuery, callback_data: ServiceCb, bot: Bot) -> None:
+    service = await db.get_service(callback_data.id)
+    chat_id, message_id = callback.message.chat.id, callback.message.message_id
+    if service is None:
+        await callback.answer(texts.SERVICE_NOT_FOUND, show_alert=True)
+        await show_list(bot, chat_id, message_id)
+        return
+    await db.delete_service(service["id"])
+    await show_list(bot, chat_id, message_id, note=texts.SERVICE_DELETED.format(title=html.escape(service["title"])))
     await callback.answer()
 
 

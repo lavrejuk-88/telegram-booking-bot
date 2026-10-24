@@ -292,6 +292,19 @@ SERVICE_NO_DESCRIPTION = "<i>нет</i>"
 SERVICE_VISIBLE = "👁 Видна клиентам"
 SERVICE_HIDDEN = "🙈 Скрыта от клиентов"
 
+BTN_DELETE_SERVICE = "🗑 Удалить услугу"
+BTN_DELETE_SERVICE_YES = "🗑 Да, удалить"
+BTN_DELETE_SERVICE_NO = "⬅️ Нет, оставить"
+SERVICE_DELETE_CONFIRM = (
+    "Удалить услугу «{title}»?\n\n"
+    "Клиенты больше не смогут на неё записаться. Вернуть удалённую услугу нельзя — "
+    "если хотите убрать её только на время, лучше нажмите «🙈 Скрыть от клиентов»."
+)
+SERVICE_DELETE_HAS_BOOKINGS = (
+    "\n\n⚠️ На эту услугу уже записаны клиенты: {count}. "
+    "Их записи останутся в силе — клиенты придут, как договаривались."
+)
+SERVICE_DELETED = "✅ Услуга «{title}» удалена"
 SERVICE_ADDED = "✅ Услуга добавлена"
 SERVICE_SAVED = "✅ Сохранено"
 SERVICE_NOT_FOUND = "Такой услуги больше нет"

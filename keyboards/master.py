@@ -43,7 +43,7 @@ class ServiceCb(CallbackData, prefix="svc"):
     aiogram сам упакует их в строку вида 'svc:edit:3:price'
     и распакует обратно, когда кнопку нажмут.
     """
-    action: str      # list, open, add, edit, toggle, up, down, dur, skip, cancel
+    action: str      # list, open, add, edit, toggle, up, down, delete, delete_ok, dur, skip, cancel
     id: int = 0      # id услуги (для action=dur — количество минут)
     field: str = ""  # какое поле меняем (для action=edit)
 
@@ -78,8 +78,17 @@ def service_card(service) -> InlineKeyboardMarkup:
     )
     kb.button(text=texts.BTN_UP, callback_data=ServiceCb(action="up", id=sid))
     kb.button(text=texts.BTN_DOWN, callback_data=ServiceCb(action="down", id=sid))
+    kb.button(text=texts.BTN_DELETE_SERVICE, callback_data=ServiceCb(action="delete", id=sid))
     kb.button(text=texts.BTN_TO_LIST, callback_data=ServiceCb(action="list"))
-    kb.adjust(2, 2, 1, 2, 1)
+    kb.adjust(2, 2, 1, 2, 1, 1)
+    return kb.as_markup()
+
+
+def service_delete_confirm(service_id: int) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text=texts.BTN_DELETE_SERVICE_YES, callback_data=ServiceCb(action="delete_ok", id=service_id))
+    kb.button(text=texts.BTN_DELETE_SERVICE_NO, callback_data=ServiceCb(action="open", id=service_id))
+    kb.adjust(1)
     return kb.as_markup()
 
 
