@@ -8,6 +8,35 @@ Telegram-бот, через который клиенты сами записы�
 
 ---
 
+## Как это выглядит
+
+Путь клиента: меню → услуга → день → карточка → готово → «Моя запись».
+
+<table>
+  <tr>
+    <td><img src="docs/screenshots/client-menu.jpg" width="260" alt="Главное меню"></td>
+    <td><img src="docs/screenshots/client-services.jpg" width="260" alt="Выбор услуги"></td>
+    <td><img src="docs/screenshots/client-days.jpg" width="260" alt="Выбор дня"></td>
+  </tr>
+  <tr>
+    <td align="center">Главное меню</td>
+    <td align="center">Услуги с ценами и длительностью</td>
+    <td align="center">Только дни со свободным временем</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/client-card.jpg" width="260" alt="Карточка записи"></td>
+    <td><img src="docs/screenshots/client-booked.jpg" width="260" alt="Запись подтверждена"></td>
+    <td><img src="docs/screenshots/client-my-booking.jpg" width="260" alt="Моя запись"></td>
+  </tr>
+  <tr>
+    <td align="center">Карточка: имя и телефон запоминаются</td>
+    <td align="center">Запись подтверждена сразу</td>
+    <td align="center">Перенос и отмена</td>
+  </tr>
+</table>
+
+---
+
 ## Возможности
 
 ### Для клиента
