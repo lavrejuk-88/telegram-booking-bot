@@ -1,12 +1,26 @@
 from datetime import date
 
 from aiogram.filters.callback_data import CallbackData
-from aiogram.types import InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import formatting as fmt
 import texts
 from logic.schedule import GRID_HOURS
+
+
+def reply_menu() -> ReplyKeyboardMarkup:
+    """Постоянная кнопка внизу экрана — меню всегда под рукой, листать чат вверх не нужно."""
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=texts.BTN_MASTER_MENU)]],
+        resize_keyboard=True,  # кнопка маленькая, а не на пол-экрана
+        is_persistent=True,    # не прячется после нажатия
+    )
+
+
+def open_menu_button(kb: InlineKeyboardBuilder) -> None:
+    """Добавляет кнопку «Открыть меню» (под уведомлениями)."""
+    kb.button(text=texts.BTN_OPEN_MENU, callback_data="m:open_menu")
 
 
 def main_menu() -> InlineKeyboardMarkup:
@@ -176,6 +190,24 @@ def schedule_conflict() -> InlineKeyboardMarkup:
     kb.button(text=texts.BTN_CONFLICT_CANCEL, callback_data=SchedCb(action="conf", op="cancel"))
     kb.button(text=texts.BTN_CONFLICT_ABORT, callback_data=SchedCb(action="conf", op="abort"))
     kb.adjust(1)
+    return kb.as_markup()
+
+
+# --- Настройки ---
+
+
+def settings_menu() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text=texts.BTN_EDIT_WELCOME, callback_data="m:set_welcome")
+    kb.button(text=texts.BTN_RESET_WELCOME, callback_data="m:reset_welcome")
+    kb.button(text=texts.BTN_BACK, callback_data="m:menu")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+def welcome_prompt() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text=texts.BTN_CANCEL, callback_data="m:settings")
     return kb.as_markup()
 
 

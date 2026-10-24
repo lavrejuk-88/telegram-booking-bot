@@ -13,6 +13,7 @@ import formatting as fmt
 import texts
 from config import DB_DATETIME_FORMAT, settings
 from keyboards import client as client_kb
+from keyboards import master as master_kb
 
 log = logging.getLogger(__name__)
 
@@ -56,14 +57,16 @@ def summary(booking) -> str:
     return texts.BOOKING_SUMMARY.format(**booking_fields(booking))
 
 
-def client_buttons(booking) -> InlineKeyboardMarkup | None:
-    # Кнопку даём только при наличии username: ссылка вида t.me/username открывается всегда.
+def master_buttons(booking) -> InlineKeyboardMarkup:
+    """Кнопки под уведомлением специалисту: написать клиенту и открыть меню."""
+    kb = InlineKeyboardBuilder()
+    # «Написать клиенту» — только при наличии username: ссылка вида t.me/username открывается всегда.
     # Ссылка по id в кнопке может не сработать из-за настроек приватности клиента,
     # и тогда Telegram не отправит всё уведомление целиком.
-    if not booking["client_username"]:
-        return None
-    kb = InlineKeyboardBuilder()
-    kb.button(text=texts.BTN_WRITE_CLIENT, url=f"https://t.me/{booking['client_username']}")
+    if booking["client_username"]:
+        kb.button(text=texts.BTN_WRITE_CLIENT, url=f"https://t.me/{booking['client_username']}")
+    master_kb.open_menu_button(kb)
+    kb.adjust(1)
     return kb.as_markup()
 
 
@@ -73,13 +76,13 @@ def client_buttons(booking) -> InlineKeyboardMarkup | None:
 async def notify_new_booking(bot: Bot, booking_id: int) -> None:
     booking = await db.get_booking_details(booking_id)
     text = texts.NOTIFY_NEW_BOOKING.format(**booking_fields(booking))
-    await send(bot, settings.master_tg_id, text, client_buttons(booking))
+    await send(bot, settings.master_tg_id, text, master_buttons(booking))
 
 
 async def notify_cancelled_by_client(bot: Bot, booking_id: int) -> None:
     booking = await db.get_booking_details(booking_id)
     text = texts.NOTIFY_CANCELLED.format(summary=summary(booking))
-    await send(bot, settings.master_tg_id, text, client_buttons(booking))
+    await send(bot, settings.master_tg_id, text, master_buttons(booking))
 
 
 async def notify_rescheduled(bot: Bot, old_id: int, new_id: int) -> None:
@@ -89,7 +92,7 @@ async def notify_rescheduled(bot: Bot, old_id: int, new_id: int) -> None:
     text = texts.NOTIFY_RESCHEDULED.format(
         **fields, old=when(parse(old["start_at"])), new=when(parse(new["start_at"]))
     )
-    await send(bot, settings.master_tg_id, text, client_buttons(new))
+    await send(bot, settings.master_tg_id, text, master_buttons(new))
 
 
 # --- Клиенту ---

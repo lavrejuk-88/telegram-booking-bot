@@ -183,6 +183,12 @@ async def get_master() -> aiosqlite.Row:
         return await cursor.fetchone()
 
 
+async def set_welcome(text: str) -> None:
+    async with connect() as conn:
+        await conn.execute("UPDATE masters SET welcome_text = ?", (text,))
+        await conn.commit()
+
+
 # --- Услуги ---
 
 # Поля услуги, которые специалист может менять из бота

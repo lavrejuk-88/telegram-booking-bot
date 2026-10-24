@@ -23,9 +23,10 @@ import db
 import formatting as fmt
 import notifications
 import texts
-from config import DB_DATETIME_FORMAT
+from config import DB_DATETIME_FORMAT, settings
 from handlers.common import edit_or_send, try_delete
 from keyboards import client as kb
+from keyboards import master as master_kb
 from keyboards.client import DAYS_PER_PAGE, BookCb
 from logic import availability, validation
 from states import BookingForm
@@ -140,8 +141,10 @@ async def remove_reply_keyboard(bot: Bot, chat_id: int) -> None:
     """Убирает кнопку «Поделиться контактом» снизу экрана.
 
     Убрать такую кнопку можно только новым сообщением, поэтому отправляем его и сразу удаляем.
+    Специалисту (если он проверяет запись «как клиент») вместо пустоты возвращаем его кнопку меню.
     """
-    message = await bot.send_message(chat_id, "✅", reply_markup=ReplyKeyboardRemove())
+    markup = master_kb.reply_menu() if chat_id == settings.master_tg_id else ReplyKeyboardRemove()
+    message = await bot.send_message(chat_id, "✅", reply_markup=markup)
     await try_delete(message)
 
 
