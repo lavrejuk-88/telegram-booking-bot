@@ -184,6 +184,11 @@ async def after_input(bot: Bot, chat_id: int, user: User, state: FSMContext) -> 
     data = await state.get_data()
     slot = data["slot"]
     service = await db.get_service(slot["id"])
+    if service is None or not service["is_active"]:
+        # Пока клиент вводил данные, специалист скрыл услугу. Данные клиента уже сохранены.
+        await state.clear()
+        await show_services(bot, chat_id, data["card_id"], note=texts.SERVICE_GONE)
+        return
     await show_card(bot, chat_id, data["card_id"], service, slot_start(slot["day"], slot["n"]), user.id)
 
     client = await db.get_client(user.id)

@@ -12,6 +12,8 @@ from config import settings
 from handlers.common import edit_or_send
 from keyboards import client as kb
 
+from .booking import drop_question
+
 router = Router()
 
 
@@ -27,8 +29,10 @@ async def menu_content(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
 
 
 @router.message(CommandStart())
-async def cmd_start(message: Message, state: FSMContext) -> None:
-    # /start всегда возвращает в начало, даже из середины записи
+async def cmd_start(message: Message, state: FSMContext, bot: Bot) -> None:
+    # /start всегда возвращает в начало, даже из середины записи.
+    # Висящий вопрос про имя/телефон и кнопку «Поделиться контактом» тоже убираем.
+    await drop_question(bot, message.chat.id, state)
     await state.clear()
     text, markup = await menu_content(message.from_user.id)
     await message.answer(text, reply_markup=markup)
@@ -36,6 +40,7 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
 
 @router.callback_query(F.data == "c:menu")
 async def back_to_menu(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
+    await drop_question(bot, callback.message.chat.id, state)
     await state.clear()
     text, markup = await menu_content(callback.from_user.id)
     await edit_or_send(bot, callback.message.chat.id, callback.message.message_id, text, markup)

@@ -12,6 +12,7 @@ from aiogram.types import CallbackQuery, Message
 
 import texts
 from handlers import client
+from handlers.client.booking import drop_question
 from handlers.common import try_delete
 from keyboards import master as kb
 
@@ -41,6 +42,8 @@ async def send_menu(bot: Bot, chat_id: int) -> None:
 
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext, bot: Bot) -> None:
+    # Если специалист проверял запись «как клиент», убираем висящий вопрос про имя/телефон
+    await drop_question(bot, message.chat.id, state)
     await state.clear()
     # Кнопку внизу экрана можно поставить только отдельным сообщением,
     # поэтому сначала короткая подсказка с этой кнопкой, затем само меню
@@ -53,6 +56,7 @@ async def cmd_start(message: Message, state: FSMContext, bot: Bot) -> None:
 @router.message(F.text == texts.BTN_MASTER_MENU)
 async def menu_button(message: Message, state: FSMContext, bot: Bot) -> None:
     """Нажата постоянная кнопка внизу экрана. Работает даже посреди любого диалога."""
+    await drop_question(bot, message.chat.id, state)
     await state.clear()
     await try_delete(message)
     await send_menu(bot, message.chat.id)
@@ -61,6 +65,7 @@ async def menu_button(message: Message, state: FSMContext, bot: Bot) -> None:
 @router.callback_query(F.data == "m:open_menu")
 async def open_menu_below(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
     """Кнопка под уведомлением: само уведомление не трогаем, меню — новым сообщением ниже."""
+    await drop_question(bot, callback.message.chat.id, state)
     await state.clear()
     await send_menu(bot, callback.message.chat.id)
     await callback.answer()

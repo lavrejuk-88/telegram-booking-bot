@@ -1,6 +1,7 @@
 """Точка входа. Запуск: python bot.py"""
 import asyncio
 import logging
+from logging.handlers import RotatingFileHandler
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -20,7 +21,8 @@ def setup_logging() -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         handlers=[
             logging.StreamHandler(),
-            logging.FileHandler("bot.log", encoding="utf-8"),
+            # Журнал не растёт бесконечно: до 1 МБ, плюс 3 предыдущих файла (bot.log.1 … bot.log.3)
+            RotatingFileHandler("bot.log", maxBytes=1_000_000, backupCount=3, encoding="utf-8"),
         ],
     )
 

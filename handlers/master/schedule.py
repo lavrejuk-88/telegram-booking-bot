@@ -253,6 +253,11 @@ async def save_days(
     days: dict[date, list[tuple[str, str]]], monday: date, note: str,
 ) -> None:
     """Сохраняет новое расписание дней. Если оно задевает записи — сначала спрашивает специалиста."""
+    if not days:
+        # Например, нажали кнопку в старом сообщении про уже прошедшую неделю: менять нечего
+        await state.clear()
+        await show_week(bot, chat_id, message_id, week_start(today()))
+        return
     conflicts = await find_conflicts(days)
     if not conflicts:
         await db.set_days(days)

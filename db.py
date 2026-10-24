@@ -570,12 +570,4 @@ async def mark_reminded(booking_id: int, flag: str) -> bool:
 
 async def has_active_booking(client_tg_id: int) -> bool:
     """Есть ли у клиента активная запись в будущем (для кнопки «Моя запись»)."""
-    async with connect() as conn:
-        cursor = await conn.execute(
-            "SELECT 1 FROM bookings b"
-            " JOIN clients c ON c.id = b.client_id"
-            " WHERE c.tg_id = ? AND b.status = 'active' AND b.start_at > ?"
-            " LIMIT 1",
-            (client_tg_id, now_str()),
-        )
-        return await cursor.fetchone() is not None
+    return await get_active_booking(client_tg_id) is not None

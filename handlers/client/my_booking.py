@@ -16,6 +16,8 @@ from keyboards import client as kb
 from keyboards.client import DAYS_PER_PAGE, MyCb
 from logic import availability
 
+from .booking import drop_question
+
 router = Router()
 
 
@@ -58,6 +60,7 @@ async def show_my_booking(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "c:my_booking")
 async def open_my_booking(callback: CallbackQuery, state: FSMContext) -> None:
+    await drop_question(callback.bot, callback.message.chat.id, state)
     await state.clear()
     await show_my_booking(callback)
     await callback.answer()
@@ -101,10 +104,21 @@ async def do_cancel(callback: CallbackQuery, callback_data: MyCb, bot: Bot) -> N
 # --- Перенос: день → время → подтверждение ---
 
 
+async def reschedule_options(booking) -> dict[date, list[datetime]]:
+    """Куда можно перенести запись: свободное время по дням, кроме текущего времени самой записи.
+
+    Дни, где свободно только текущее время записи, в список не попадают —
+    иначе клиент открыл бы день и увидел пустой выбор.
+    """
+    current = parse(booking["start_at"])
+    free = await availability.free_days(availability.booking_minutes(booking), exclude_booking_id=booking["id"])
+    options = {day: [s for s in starts if s != current] for day, starts in free.items()}
+    return {day: starts for day, starts in options.items() if starts}
+
+
 async def show_reschedule_days(callback: CallbackQuery, booking, page: int) -> None:
     chat_id, message_id = callback.message.chat.id, callback.message.message_id
-    minutes = availability.booking_minutes(booking)
-    all_days = sorted(await availability.free_days(minutes, exclude_booking_id=booking["id"]))
+    all_days = sorted(await reschedule_options(booking))
     if not all_days:
         await edit_or_send(callback.bot, chat_id, message_id, texts.RESCHEDULE_NO_DAYS, kb.my_booking(booking["id"]))
         return
@@ -129,16 +143,14 @@ async def reschedule_choose_time(callback: CallbackQuery, callback_data: MyCb, b
     booking = await own_booking(callback, callback_data.id)
     if booking is None:
         return
-    minutes = availability.booking_minutes(booking)
     day = date.fromisoformat(callback_data.day)
-    all_days = sorted(await availability.free_days(minutes, exclude_booking_id=booking["id"]))
-    if day not in all_days:
+    options = await reschedule_options(booking)
+    if day not in options:
         await show_reschedule_days(callback, booking, 0)
         await callback.answer(texts.DAY_FULL, show_alert=True)
         return
-    starts = (await availability.free_times(minutes, day, day, exclude_booking_id=booking["id"]))[day]
-    current = parse(booking["start_at"])
-    starts = [s for s in starts if s != current]  # своё же текущее время не предлагаем
+    starts = options[day]
+    all_days = sorted(options)
     text = texts.RESCHEDULE_TIME.format(
         service=html.escape(booking["service_title"]), day=fmt.day_full(day), tz=fmt.timezone()
     )
